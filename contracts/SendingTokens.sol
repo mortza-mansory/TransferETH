@@ -109,23 +109,112 @@
 // }
 
 
-// Level 4 its become more useful, its taking reciver address and send from sender to reciver and owner grab some fee from it
+// // Level 4 its become more useful, its taking reciver address and send from sender to reciver and owner grab some fee from it
+// // SPDX-License-Identifier: SEE LICENSE IN LICENSE
+// pragma solidity ^0.8.24;
+
+// contract Transfer {
+    
+//     event FundsTransferred(address indexed sender, address indexed receiver, uint amount);
+//     event CommissionPaid(address indexed owner, uint amount);
+//     event MessageLogged(address indexed sender, address indexed receiver, uint amount, string message);
+
+//     address payable public owner;
+
+//     constructor() {
+//         owner = payable(msg.sender);  //تبدیل یک ادرس ساده به payable
+//     }
+
+//     function sendTo(address payable receiver, string calldata message) external payable {
+//         require(msg.value > 0, "Send some ETH");
+//         require(receiver != address(0), "Receiver address?");
+
+//         (uint ownerShare, uint receiverShare) = calculateShares(msg.value);
+
+//         (bool sentReceiver, ) = receiver.call{value: receiverShare}("");
+//         require(sentReceiver, "ETH transfer to receiver failed");
+
+//         (bool sentOwner, ) = owner.call{value: ownerShare}("");
+//         require(sentOwner, "ETH transfer to owner failed");
+
+//         emit FundsTransferred(msg.sender, receiver, receiverShare);
+//         emit CommissionPaid(owner, ownerShare);
+//         emit MessageLogged(msg.sender, receiver, msg.value, message); 
+//     }
+
+//     function calculateShares(uint totalAmount) internal pure returns (uint ownerShare, uint receiverShare) {
+//         ownerShare = totalAmount / 100; // 1% fee 
+//         receiverShare = totalAmount - ownerShare;
+//         return (ownerShare, receiverShare);
+//     }
+
+//     receive() external payable {
+//         revert("Direct payments not allowed. Use sendTo.");
+//     }
+
+//     fallback() external payable {
+//         revert("Function does not exist");
+//     }
+// }
+
+
+
+//Level 5, adding more intermediet things such as Escrow and confrim the PaymentProcess, adding more emit and using enum for not give owner the money...
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity ^0.8.24;
 
 contract Transfer {
-    
-    event FundsTransferred(address indexed sender, address indexed receiver, uint amount);
-    event CommissionPaid(address indexed owner, uint amount);
-    event MessageLogged(address indexed sender, address indexed receiver, uint amount, string message);
+    event PaymentProcessed(
+        address indexed sender,
+        address indexed receiver,
+        uint receiverAmount,
+        uint ownerAmount,
+        string message
+    );
 
-    address payable public owner;
+    event EscrowCreated(
+        uint indexed dealId,
+        address indexed sender,
+        address indexed receiver,
+        uint amount,
+        string message
+    );
 
-    constructor() {
-        owner = payable(msg.sender);  //تبدیل یک ادرس ساده به payable
+    event EscrowReleased(
+        uint indexed dealId,
+        address indexed receiver,
+        uint amount
+    );
+
+    event EscrowCancelled(
+        uint indexed dealId,
+        address indexed sender,
+        uint amount
+    );
+
+    address public owner;
+
+    enum DealStatus { Pending, Released, Cancelled }
+
+    struct EscrowDeal {
+        address sender;
+        address payable receiver;
+        uint amount;
+        string message;
+        DealStatus status;
     }
 
-    function sendTo(address payable receiver, string calldata message) external payable {
+    mapping(uint => EscrowDeal) public deals;
+    uint public dealCount;
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function sendTo(address payable receiver, string calldata message)
+        external
+        payable
+    {
         require(msg.value > 0, "Send some ETH");
         require(receiver != address(0), "Receiver address?");
 
@@ -134,16 +223,69 @@ contract Transfer {
         (bool sentReceiver, ) = receiver.call{value: receiverShare}("");
         require(sentReceiver, "ETH transfer to receiver failed");
 
-        (bool sentOwner, ) = owner.call{value: ownerShare}("");
+        (bool sentOwner, ) = payable(owner).call{value: ownerShare}("");
         require(sentOwner, "ETH transfer to owner failed");
 
-        emit FundsTransferred(msg.sender, receiver, receiverShare);
-        emit CommissionPaid(owner, ownerShare);
-        emit MessageLogged(msg.sender, receiver, msg.value, message); 
+        emit PaymentProcessed(
+            msg.sender,
+            receiver,
+            receiverShare,
+            ownerShare,
+            message
+        );
     }
 
-    function calculateShares(uint totalAmount) internal pure returns (uint ownerShare, uint receiverShare) {
-        ownerShare = totalAmount / 100; // 1% fee 
+    function createDeal(address payable receiver, string calldata message)
+        external
+        payable
+    {
+        require(msg.value > 0, "Send some ETH");
+        require(receiver != address(0), "Invalid receiver");
+
+        deals[dealCount] = EscrowDeal({
+            sender: msg.sender,
+            receiver: receiver,
+            amount: msg.value,
+            message: message,
+            status: DealStatus.Pending
+        });
+
+        emit EscrowCreated(dealCount, msg.sender, receiver, msg.value, message);
+        dealCount++;
+    }
+
+    function releaseDeal(uint dealId) external {
+        EscrowDeal storage deal = deals[dealId];
+        require(msg.sender == deal.sender, "Only sender can release");
+        require(deal.status == DealStatus.Pending, "Not pending");
+
+        deal.status = DealStatus.Released;
+
+        (bool sent, ) = deal.receiver.call{value: deal.amount}("");
+        require(sent, "Transfer to receiver failed");
+
+        emit EscrowReleased(dealId, deal.receiver, deal.amount);
+    }
+
+    function cancelDeal(uint dealId) external {
+        EscrowDeal storage deal = deals[dealId];
+        require(msg.sender == deal.sender || msg.sender == owner, "Not authorized");
+        require(deal.status == DealStatus.Pending, "Already processed");
+
+        deal.status = DealStatus.Cancelled;
+
+        (bool sent, ) = payable(deal.sender).call{value: deal.amount}("");
+        require(sent, "Refund failed");
+
+        emit EscrowCancelled(dealId, deal.sender, deal.amount);
+    }
+
+    function calculateShares(uint totalAmount)
+        internal
+        pure
+        returns (uint ownerShare, uint receiverShare)
+    {
+        ownerShare = totalAmount / 100; // 1% fee
         receiverShare = totalAmount - ownerShare;
         return (ownerShare, receiverShare);
     }
@@ -156,4 +298,10 @@ contract Transfer {
         revert("Function does not exist");
     }
 }
+
+
+
+
+
+
 
