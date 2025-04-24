@@ -1,0 +1,108 @@
+// Level 0 its a simple Transfer contract, witch is only give you ability to send ETH to who deploy this contract.
+// pragma solidity ^0.8.24;
+
+// contract Transfer {
+
+//     event Transfer( address indexed from, address indexed to ,uint indexed amount );
+
+//     constructor(address payable _receiver) { recevier = _receiver;  }
+  
+//     address payable public recevier;
+
+//     function sendToReciver() external payable {
+//         require(msg.value > 0, "You must send some ETH");
+//         recevier.transfer(msg.value);
+//         emit Transfer(msg.sender, recevier, msg.value);
+//     }
+// }
+
+
+// Level 1 its still a  simple Transfer contract but with more security such as security via .call and recvieving directly ETH via recevi.
+// pragma solidity ^0.8.24;
+
+// contract Transfer {
+//     event Transfer(address indexed from, address indexed to, uint amount);
+
+//     address payable public recevier;
+
+//     constructor(address payable _receiver) {
+//         recevier = _receiver;
+//     }
+
+//     function sendToReciver() external payable {
+//         require(msg.value > 0, "Send some ETH");
+//         (bool success, ) = recevier.call{value: msg.value}("");
+//         require(success, "ETH transfer failed");
+
+//         emit Transfer(msg.sender, recevier, msg.value);
+//     }
+
+//     receive() external payable {}
+// }
+
+// // Level 2 its still a  simple Transfer contract but with more security
+// // Such as using receive that is a method  that when someone send to contract only ETH without other req data runs.
+// // And fallback, that when user call method or functions from our contracts witch isnt on our contract.
+// pragma solidity ^0.8.24;
+
+// contract Transfer {
+//     event transfered(address indexed from, address indexed to, uint amount);
+
+//     address payable public recevier;
+
+//     constructor(address payable _receiver) {
+//         recevier = _receiver;
+//     }
+
+//     function sendToReciver() external payable {
+//         require(msg.value > 0, "You must send some ETH");
+
+//         (bool success, ) = recevier.call{value: msg.value}("");
+//         require(success, "ETH Transfer failed");
+
+//         emit transfered(msg.sender, recevier, msg.value);
+//     }
+
+//     receive() external payable {
+//         (bool success, ) = recevier.call{value: msg.value}("");
+//         require(success, "Direct ETH transfer failed");
+//         emit transfered(msg.sender, recevier, msg.value);
+//     }
+
+//     // If someone calls a non-existent function
+//     fallback() external payable {
+//         revert("Function does not exist");
+//     }
+// }
+
+
+// Level 3 its still that simple contract, but the owner address is defined..
+// SPDX-License-Identifier: SEE LICENSE IN LICENSE
+pragma solidity ^0.8.24;
+
+contract Transfer {
+    event FundsTransferred(address indexed from, address indexed to, uint amount);
+
+    address payable public constant owner = payable(address(uint160(0x814EabE6C22a4ba2B7658702cd9cB56155DbD34f)));
+    constructor() { }
+
+    function sendToOwner() external payable {
+        require(msg.value > 0, "Send some ETH");
+
+        (bool success, ) = owner.call{value: msg.value}("");
+        require(success, "ETH Transfer failed");
+
+        emit FundsTransferred(msg.sender, owner, msg.value);
+    }
+
+    receive() external payable {
+        (bool success, ) = owner.call{value: msg.value}("");
+        require(success, "Direct ETH transfer failed");
+
+        emit FundsTransferred(msg.sender, owner, msg.value);
+    }
+
+    fallback() external payable {
+        revert("Function does not exist");
+    }
+}
