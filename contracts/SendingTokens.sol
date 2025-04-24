@@ -428,18 +428,18 @@ contract Transfer {
         emit EscrowCancelled(dealId, deal.sender, deal.amount);
     }
 
-    function claimRefundAfterTimeout(uint dealId) external {
+    // Timeout logic: send funds to the SELLER (receiver) if 3 days pass without action
+    function claimTimeoutByReceiver(uint dealId) external {
         EscrowDeal storage deal = deals[dealId];
         require(deal.status == DealStatus.Pending, "Deal not pending");
-        require(msg.sender == deal.sender, "Only sender can claim");
         require(block.timestamp >= deal.createdAt + TIMEOUT, "Timeout not reached");
 
-        deal.status = DealStatus.Cancelled;
+        deal.status = DealStatus.Released;
 
-        (bool sent, ) = payable(deal.sender).call{value: deal.amount}("");
-        require(sent, "Refund failed");
+        (bool sent, ) = deal.receiver.call{value: deal.amount}("");
+        require(sent, "Transfer to receiver failed");
 
-        emit EscrowCancelled(dealId, deal.sender, deal.amount);
+        emit EscrowReleased(dealId, deal.receiver, deal.amount);
     }
 
     function calculateShares(uint totalAmount)
@@ -460,6 +460,3 @@ contract Transfer {
         revert("Function does not exist");
     }
 }
-
-
-
