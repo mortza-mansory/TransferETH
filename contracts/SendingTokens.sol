@@ -302,8 +302,166 @@
 
 
 
+// //Level 6, more high level, adding TIMEOUT timer witch is for 3 days lock the money into account unti the buyer say yeah he gave me this thing
+// // SPDX-License-Identifier: SEE LICENSE IN LICENSE
+// pragma solidity ^0.8.24;
 
-//Level 6, more high level, adding TIMEOUT timer witch is for 3 days lock the money into account unti the buyer say yeah he gave me this thing
+// contract Transfer {
+//     event PaymentProcessed(
+//         address indexed sender,
+//         address indexed receiver,
+//         uint receiverAmount,
+//         uint ownerAmount,
+//         string message
+//     );
+
+//     event EscrowCreated(
+//         uint indexed dealId,
+//         address indexed sender,
+//         address indexed receiver,
+//         uint amount,
+//         string message
+//     );
+
+//     event EscrowReleased(
+//         uint indexed dealId,
+//         address indexed receiver,
+//         uint amount
+//     );
+
+//     event EscrowCancelled(
+//         uint indexed dealId,
+//         address indexed sender,
+//         uint amount
+//     );
+
+//     address public owner;
+
+//     enum DealStatus { Pending, Released, Cancelled }
+
+//     struct EscrowDeal {
+//         address sender;
+//         address payable receiver;
+//         uint amount;
+//         string message;
+//         DealStatus status;
+//         uint createdAt;
+//     }
+
+//     mapping(uint => EscrowDeal) public deals;
+//     uint public dealCount;
+
+//     uint constant TIMEOUT = 3 days;
+
+//     constructor() {
+//         owner = msg.sender;
+//     }
+
+//     function sendTo(address payable receiver, string calldata message)
+//         external
+//         payable
+//     {
+//         require(msg.value > 0, "Send some ETH");
+//         require(receiver != address(0), "Receiver address?");
+
+//         (uint ownerShare, uint receiverShare) = calculateShares(msg.value);
+
+//         (bool sentReceiver, ) = receiver.call{value: receiverShare}("");
+//         require(sentReceiver, "ETH transfer to receiver failed");
+
+//         (bool sentOwner, ) = payable(owner).call{value: ownerShare}("");
+//         require(sentOwner, "ETH transfer to owner failed");
+
+//         emit PaymentProcessed(
+//             msg.sender,
+//             receiver,
+//             receiverShare,
+//             ownerShare,
+//             message
+//         );
+//     }
+
+//     function createDeal(address payable receiver, string calldata message)
+//         external
+//         payable
+//     {
+//         require(msg.value > 0, "Send some ETH");
+//         require(receiver != address(0), "Invalid receiver");
+
+//         deals[dealCount] = EscrowDeal({
+//             sender: msg.sender,
+//             receiver: receiver,
+//             amount: msg.value,
+//             message: message,
+//             status: DealStatus.Pending,
+//             createdAt: block.timestamp
+//         });
+
+//         emit EscrowCreated(dealCount, msg.sender, receiver, msg.value, message);
+//         dealCount++;
+//     }
+
+//     function releaseDeal(uint dealId) external {
+//         EscrowDeal storage deal = deals[dealId];
+//         require(msg.sender == deal.sender, "Only sender can release");
+//         require(deal.status == DealStatus.Pending, "Not pending");
+
+//         deal.status = DealStatus.Released;
+
+//         (bool sent, ) = deal.receiver.call{value: deal.amount}("");
+//         require(sent, "Transfer to receiver failed");
+
+//         emit EscrowReleased(dealId, deal.receiver, deal.amount);
+//     }
+
+//     function cancelDeal(uint dealId) external {
+//         EscrowDeal storage deal = deals[dealId];
+//         require(msg.sender == deal.sender || msg.sender == owner, "Not authorized");
+//         require(deal.status == DealStatus.Pending, "Already processed");
+
+//         deal.status = DealStatus.Cancelled;
+
+//         (bool sent, ) = payable(deal.sender).call{value: deal.amount}("");
+//         require(sent, "Refund failed");
+
+//         emit EscrowCancelled(dealId, deal.sender, deal.amount);
+//     }
+
+//     // Timeout logic: send funds to the SELLER (receiver) if 3 days pass without action
+//     function claimTimeoutByReceiver(uint dealId) external {
+//         EscrowDeal storage deal = deals[dealId];
+//         require(deal.status == DealStatus.Pending, "Deal not pending");
+//         require(block.timestamp >= deal.createdAt + TIMEOUT, "Timeout not reached");
+
+//         deal.status = DealStatus.Released;
+
+//         (bool sent, ) = deal.receiver.call{value: deal.amount}("");
+//         require(sent, "Transfer to receiver failed");
+
+//         emit EscrowReleased(dealId, deal.receiver, deal.amount);
+//     }
+
+//     function calculateShares(uint totalAmount)
+//         internal
+//         pure
+//         returns (uint ownerShare, uint receiverShare)
+//     {
+//         ownerShare = totalAmount / 100; // 1% fee
+//         receiverShare = totalAmount - ownerShare;
+//         return (ownerShare, receiverShare);
+//     }
+
+//     receive() external payable {
+//         revert("Direct payments not allowed. Use sendTo.");
+//     }
+
+//     fallback() external payable {
+//         revert("Function does not exist");
+//     }
+// }
+
+
+// Level 6 lets put our feets on advanced case, adding more conditions and if buyer not confrims what happening after or how we arbitrate this moeny that being locked and so on...
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity ^0.8.24;
 
@@ -326,7 +484,7 @@ contract Transfer {
 
     event EscrowReleased(
         uint indexed dealId,
-        address indexed receiver,
+        address indexed to,
         uint amount
     );
 
@@ -347,12 +505,14 @@ contract Transfer {
         string message;
         DealStatus status;
         uint createdAt;
+        bool isLocked;
     }
 
     mapping(uint => EscrowDeal) public deals;
     uint public dealCount;
 
-    uint constant TIMEOUT = 3 days;
+    uint constant TIMEOUT = 1 days;
+    uint constant ARBITRATION_PERIOD = 4 days;
 
     constructor() {
         owner = msg.sender;
@@ -395,7 +555,8 @@ contract Transfer {
             amount: msg.value,
             message: message,
             status: DealStatus.Pending,
-            createdAt: block.timestamp
+            createdAt: block.timestamp,
+            isLocked: false
         });
 
         emit EscrowCreated(dealCount, msg.sender, receiver, msg.value, message);
@@ -406,6 +567,7 @@ contract Transfer {
         EscrowDeal storage deal = deals[dealId];
         require(msg.sender == deal.sender, "Only sender can release");
         require(deal.status == DealStatus.Pending, "Not pending");
+        require(!deal.isLocked, "Deal is locked");
 
         deal.status = DealStatus.Released;
 
@@ -419,6 +581,7 @@ contract Transfer {
         EscrowDeal storage deal = deals[dealId];
         require(msg.sender == deal.sender || msg.sender == owner, "Not authorized");
         require(deal.status == DealStatus.Pending, "Already processed");
+        require(!deal.isLocked, "Deal is locked");
 
         deal.status = DealStatus.Cancelled;
 
@@ -428,18 +591,29 @@ contract Transfer {
         emit EscrowCancelled(dealId, deal.sender, deal.amount);
     }
 
-    // Timeout logic: send funds to the SELLER (receiver) if 3 days pass without action
-    function claimTimeoutByReceiver(uint dealId) external {
+    function lockDeal(uint dealId) external {
         EscrowDeal storage deal = deals[dealId];
         require(deal.status == DealStatus.Pending, "Deal not pending");
-        require(block.timestamp >= deal.createdAt + TIMEOUT, "Timeout not reached");
+        require(!deal.isLocked, "Already locked");
+        require(block.timestamp >= deal.createdAt + TIMEOUT, "Too early to lock");
+
+        deal.isLocked = true;
+    }
+
+    function arbitrate(uint dealId, bool releaseToSeller) external {
+        EscrowDeal storage deal = deals[dealId];
+        require(msg.sender == owner, "Only owner can arbitrate");
+        require(deal.status == DealStatus.Pending, "Deal not pending");
+        require(deal.isLocked, "Deal not locked");
+        require(block.timestamp <= deal.createdAt + TIMEOUT + ARBITRATION_PERIOD, "Arbitration period expired");
 
         deal.status = DealStatus.Released;
 
-        (bool sent, ) = deal.receiver.call{value: deal.amount}("");
-        require(sent, "Transfer to receiver failed");
+        address payable recipient = releaseToSeller ? deal.receiver : payable(deal.sender);
+        (bool sent, ) = recipient.call{value: deal.amount}("");
+        require(sent, "Transfer failed");
 
-        emit EscrowReleased(dealId, deal.receiver, deal.amount);
+        emit EscrowReleased(dealId, recipient, deal.amount);
     }
 
     function calculateShares(uint totalAmount)
