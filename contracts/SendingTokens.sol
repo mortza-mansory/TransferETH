@@ -76,33 +76,84 @@
 // }
 
 
-// Level 3 its still that simple contract, but the owner address is defined..
+
+// // Level 3 its still that simple contract, but the owner address is defined..
+// // SPDX-License-Identifier: SEE LICENSE IN LICENSE
+// pragma solidity ^0.8.24;
+
+// contract Transfer {
+//     event FundsTransferred(address indexed from, address indexed to, uint amount);
+
+//     address payable public constant owner = payable(address(uint160(0x814EabE6C22a4ba2B7658702cd9cB56155DbD34f)));
+//     constructor() { }
+
+//     function sendToOwner() external payable {
+//         require(msg.value > 0, "Send some ETH");
+
+//         (bool success, ) = owner.call{value: msg.value}("");
+//         require(success, "ETH Transfer failed");
+
+//         emit FundsTransferred(msg.sender, owner, msg.value);
+//     }
+
+//     receive() external payable {
+//         (bool success, ) = owner.call{value: msg.value}("");
+//         require(success, "Direct ETH transfer failed");
+
+//         emit FundsTransferred(msg.sender, owner, msg.value);
+//     }
+
+//     fallback() external payable {
+//         revert("Function does not exist");
+//     }
+// }
+
+
+// Level 4 its become more useful, its taking reciver address and send from sender to reciver and owner grab some fee from it
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity ^0.8.24;
 
 contract Transfer {
-    event FundsTransferred(address indexed from, address indexed to, uint amount);
+    
+    event FundsTransferred(address indexed sender, address indexed receiver, uint amount);
+    event CommissionPaid(address indexed owner, uint amount);
+    event MessageLogged(address indexed sender, address indexed receiver, uint amount, string message);
 
-    address payable public constant owner = payable(address(uint160(0x814EabE6C22a4ba2B7658702cd9cB56155DbD34f)));
-    constructor() { }
+    address payable public owner;
 
-    function sendToOwner() external payable {
+    constructor() {
+        owner = payable(msg.sender);  //تبدیل یک ادرس ساده به payable
+    }
+
+    function sendTo(address payable receiver, string calldata message) external payable {
         require(msg.value > 0, "Send some ETH");
+        require(receiver != address(0), "Receiver address?");
 
-        (bool success, ) = owner.call{value: msg.value}("");
-        require(success, "ETH Transfer failed");
+        (uint ownerShare, uint receiverShare) = calculateShares(msg.value);
 
-        emit FundsTransferred(msg.sender, owner, msg.value);
+        (bool sentReceiver, ) = receiver.call{value: receiverShare}("");
+        require(sentReceiver, "ETH transfer to receiver failed");
+
+        (bool sentOwner, ) = owner.call{value: ownerShare}("");
+        require(sentOwner, "ETH transfer to owner failed");
+
+        emit FundsTransferred(msg.sender, receiver, receiverShare);
+        emit CommissionPaid(owner, ownerShare);
+        emit MessageLogged(msg.sender, receiver, msg.value, message); 
+    }
+
+    function calculateShares(uint totalAmount) internal pure returns (uint ownerShare, uint receiverShare) {
+        ownerShare = totalAmount / 100; // 1% fee 
+        receiverShare = totalAmount - ownerShare;
+        return (ownerShare, receiverShare);
     }
 
     receive() external payable {
-        (bool success, ) = owner.call{value: msg.value}("");
-        require(success, "Direct ETH transfer failed");
-
-        emit FundsTransferred(msg.sender, owner, msg.value);
+        revert("Direct payments not allowed. Use sendTo.");
     }
 
     fallback() external payable {
         revert("Function does not exist");
     }
 }
+
